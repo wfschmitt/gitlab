@@ -27,9 +27,35 @@ gem 'gitlab'
 # gem 'gitlab', github: 'NARKOZ/gitlab'
 ```
 
-## Usage
+## Configuration
 
-Configuration example:
+Before usage you need to set an API endpoint:
+
+```ruby
+Gitlab.endpoint = 'http://example.net/api/v3'
+```
+
+Setting GitLab user's private token (not required for session):
+
+```ruby
+Gitlab.private_token = 'qEsq1pt6HJPaNciie3MG'
+```
+
+### Sudo
+
+To perform API calls as another user:
+
+```ruby
+Gitlab.sudo = 'other_user'
+```
+
+To disable it:
+
+```ruby
+Gitlab.sudo = nil
+```
+
+Alternatively you can pass configuration block:
 
 ```ruby
 Gitlab.configure do |config|
@@ -41,14 +67,73 @@ Gitlab.configure do |config|
 end
 ```
 
-(Note: If you are using Gitlab.com's hosted service, your endpoint will be `https://gitlab.com/api/v3`)
+Note: If you are using Gitlab.com's hosted service, your endpoint will be `https://gitlab.com/api/v3`
 
-Usage examples:
+Gitlab uses `GITLAB_API_ENDPOINT` and `GITLAB_API_PRIVATE_TOKEN` environment variables by default.
+
+### Clients
+
+You can set different configuration values for each client
+
+```ruby
+client1 = Gitlab.client(endpoint: 'https://api1.example.com', private_token: 'user-001')
+client2 = Gitlab.client(endpoint: 'https://api2.example.com', private_token: 'user-002')
+```
+
+### Ruby on Rails
+
+Create the file `config/initializers/gitlab.rb` with the following code:
+
+```ruby
+Gitlab.configure do |config|
+  config.endpoint       = 'https://example.net/api/v3'
+  config.private_token  = ''
+  config.user_agent     = 'Custom User Agent'
+  config.sudo           = nil
+end
+```
+
+Edit where necessary.
+
+## Usage
+
+### ObjectifiedHash
+
+Gitlab returns `Gitlab::ObjectifiedHash` for items which gives you object-like access to parsed JSON response:
+
+```ruby
+user = Gitlab.user
+user.email #=> "john@example.com"
+```
+
+You can access the original hash by running `to_h` or `to_hash` on `Gitlab::ObjectifiedHash` instance:
+
+```ruby
+user = Gitlab.user
+hash = user.to_h
+```
+
+### Pagination
+
+Use page (page number) and per_page (number of results per page) in options to paginate collections:
+
+```ruby
+Gitlab.projects(per_page: 5)
+```
+
+Gitlab returns array like `Gitlab::PaginatedResponse` for collections.
+
+### Usage examples
 
 ```ruby
 # set an API endpoint
 Gitlab.endpoint = 'http://example.net/api/v3'
 # => "http://example.net/api/v3"
+
+# get private token of a user
+user = Gitlab.session('email_or_username', 'password')
+user.private_token
+#=> "qEsq1pt6HJPaNciie3MG"
 
 # set a user private token
 Gitlab.private_token = 'qEsq1pt6HJPaNciie3MG'
@@ -56,7 +141,7 @@ Gitlab.private_token = 'qEsq1pt6HJPaNciie3MG'
 
 # configure a proxy server
 Gitlab.http_proxy('proxyhost', 8888)
-# proxy server w/ basic auth
+# proxy server with basic auth
 Gitlab.http_proxy('proxyhost', 8888, 'proxyuser', 'strongpasswordhere')
 
 # list projects
@@ -71,7 +156,7 @@ g = Gitlab.client(endpoint: 'https://api.example.com', private_token: 'qEsq1pt6H
 user = g.user
 # => #<Gitlab::ObjectifiedHash:0x00000002217990 @data={"id"=>1, "email"=>"john@example.com", "name"=>"John Smith", "bio"=>nil, "skype"=>"", "linkedin"=>"", "twitter"=>"john", "dark_scheme"=>false, "theme_id"=>1, "blocked"=>false, "created_at"=>"2012-09-17T09:41:56Z"}>
 
-# get a user's email
+# get the user's email
 user.email
 # => "john@example.com"
 
@@ -99,6 +184,13 @@ end
 
 # retrieve all projects as an array
 projects.auto_paginate
+
+# handle errors
+begin
+  client.create_project 'example'
+rescue Gitlab::Error::Error => error
+  puts error
+end
 ```
 
 For more information, refer to [documentation](http://rubydoc.info/gems/gitlab/frames).
@@ -115,11 +207,53 @@ export GITLAB_API_PRIVATE_TOKEN=<your private token from /profile/account>
 export GITLAB_API_HTTPARTY_OPTIONS="{verify: false}"
 ```
 
-Usage:
+### Usage
 
-When you want to know which CLI commands are supported, take a look at the client [commands implemented in this gem](http://www.rubydoc.info/gems/gitlab/3.4.0/Gitlab/Client). Any of those methods can be called as a command by passing the parameters of the commands as parameters of the CLI.
+Send gitlab methods as commands, and parameters as arguments to gitlab command line utility:
 
-Usage examples:
+```sh
+gitlab users
+```
+
+```sh
+gitlab user
+```
+
+```sh
+gitlab user 2
+```
+
+When you want to know which CLI commands are supported, take a look at the client [commands implemented in this gem](http://www.rubydoc.info/gems/gitlab/3.4.0/Gitlab/Client). Any of those methods can be called as a command by passing the parameters of the commands as parameters of the CLI. Before executing destructive commands you will be prompted to confirm them.
+
+### Flags
+
+You can filter output by supplying `--only` or `--except` flags:
+
+```sh
+gitlab user --only=id,email,name
+```
+
+```sh
+gitlab users --except=id,email,name
+```
+
+Use `--json` flag for JSON output:
+
+```sh
+gitlab users --json
+```
+
+### Additional commands
+
+`help` - lists all available actions
+
+`shell` - runs interactive shell to perform commands
+
+`info` - gives information about environment
+
+`-v` or `--version` - shows gem version
+
+### CLI usage examples
 
 ```sh
 # list users
@@ -148,9 +282,9 @@ gitlab create_merge_request 4 "New merge request" "{source_branch: 'new_branch',
 
 ```
 
-## CLI Shell
+### Shell
 
-Usage examples:
+You can perform commands in an interactive gitlab shell by running `gitlab shell`:
 
 ```sh
 # start shell session
@@ -168,6 +302,8 @@ gitlab> protect_branch 1 master
 # passing options hash to a command (use YAML)
 gitlab> create_merge_request 4 "New merge request" "{source_branch: 'new_branch', target_branch: 'master', assignee_id: 42}"
 ```
+
+Shell saves history and supports command completion via `tab`.
 
 Web version is available at https://gitlab-live.herokuapp.com  
 For more information, refer to [website](http://narkoz.github.io/gitlab).
